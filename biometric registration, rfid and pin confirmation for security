@@ -1,0 +1,301 @@
+#include <SPI.h>      // RC522 Module uses SPI protocol
+#include <MFRC522.h>   // Library for Mifare RC522 Devices
+#include <Adafruit_Fingerprint.h>
+#include <SoftwareSerial.h>
+#include <Keypad.h>
+#include <Stepper.h>
+
+
+char* code = "1";
+int currentposition = 0;
+const byte ROWS = 4; //four rows
+const byte COLS = 3; //three columns
+char keys[ROWS][COLS] = {
+  {'1','2','3'},
+  {'4','5','6'},
+  {'7','8','9'},
+  {'*','0','#'}
+};
+byte rowPins[ROWS] = {28, 30, 32, 34}; //connect to the row pinouts of the keypad
+byte colPins[COLS] = {36, 38, 40}; //connect to the column pinouts of the keypad
+Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+
+const int stepsPerRevolution = 200;
+Stepper myStepper(stepsPerRevolution, 42, 43, 44, 45);
+
+int switchPin = 47;         // the number of the input pin for switch
+int state = HIGH;      // the current state of the output pin
+int reading;           // the current reading from the input pin
+int previous = LOW;    // the previous reading from the input pin
+
+int getFingerprintIDez();
+// for the fingerprint scanner
+// pin #10 is IN from sensor (GREEN wire)
+// pin #11 is OUT from arduino  (WHITE wire)
+SoftwareSerial mySerial(10, 11);
+
+int Code_to_run; // variable to tell arduino which code to execute
+void CodeToRun(); // calls various functions depending on need by vb
+int LED = 13;
+// SETUP  BUZZER ============================================
+// Set up speaker on a PWM pin (digital 9, 10 or 11)
+int speakerOut = 9;
+
+int count = 3; // number of beeps
+
+const int knockSensor = A0; // the piezo is connected to analog pin 0
+const int threshold = 600;
+
+
+  
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+int successRead; // Variable integer to keep if we have Successful Read from Reader
+
+byte readCard[4];           // Stores scanned ID read from RFID Module
+int ownerIDs[4] = {16, 150, 46, 100};
+char *ownerNames[4] = {"Esther Kowuoche EN272-1847/2010" , "Allan Kemboi EN272-0372/2010", "Nick Oloo EN273-1593/2010", "Peter Ndehi EN271-0356/2010" };
+
+
+#define SS_PIN 53
+#define RST_PIN 5
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);  // Create MFRC522 instance.
+
+void setup() {
+  /*set up the RFID reader*/
+  Serial.begin(9600);  // Initialize serial communications with PC
+  SPI.begin();           // MFRC522 Hardware uses SPI protocol
+  mfrc522.PCD_Init();    // Initialize MFRC522 Hardware
+  finger.begin(57600); // set the data rate for the sensor serial port
+pinMode(switchPin, INPUT);
+  /*set up the buzzer*/
+  pinMode(speakerOut, OUTPUT);
+  SPI.begin(); 
+  myStepper.setSpeed(60);
+  pinMode(13, OUTPUT);
+};
+
+void CodeToRun() {
+  switch (Code_to_run) {
+    case (1):
+      check_for_fingerprint_sensor();
+      piezosensor();
+      break;
+    case (2):
+      RFID_Reader();
+      break;
+     case (3):
+      readkeypad();
+      break;
+     default:
+      break;
+  }
+};
+
+void loop() {
+
+  /*read serial to know which code to run*/
+  if (Serial.available()) {
+    Code_to_run = Serial.read() - '0';
+    //Serial.println(Code_to_run);
+    Serial.flush();
+    CodeToRun();
+  }
+
+}
+
+void foundmatch(){
+  bool found = false;
+   for(byte n=0; n<4; n++)
+   {
+       if(finger.fingerID == ownerIDs[n])
+       {
+           Serial.print("Fingerprint belongs to ");
+           Serial.println(ownerNames[n]);
+           found = true;
+       }
+   }
+   if(!found){}
+      //Serial.println("Fingerprint owner unknown.");
+}
+//function to get the rfid number
+void RFID_Reader () {
+  do {
+    successRead = getID(); // sets successRead to 1 when we get read from reader otherwise 0
+
+  }
+  while (!successRead); //the program will not go further while you not get a successful read
+
+}
+
+int getID() {
+  // Getting ready for Reading PICCs
+  if ( ! mfrc522.PICC_IsNewCardPresent()) { //If a new PICC placed to RFID reader continue
+    return 0;
+  }
+  if ( ! mfrc522.PICC_ReadCardSerial()) { //Since a PICC placed get Serial and continue
+    return 0;
+  }
+  //Serial.println("Scanned PICC's UID:");
+  Serial.print("r:");
+  for (int i = 0; i < 4; i++) {  //
+    readCard[i] = mfrc522.uid.uidByte[i];
+    if (readCard[i] < 16 ) Serial.print("0");
+    Serial.print(readCard[i], HEX);
+  }
+
+  Serial.println("");
+  mfrc522.PICC_HaltA(); // Stop reading
+  return 1;
+}
+
+void valid_() {
+  while(1)
+    if (getFingerprintIDez() == 1)
+    {
+      delay(50);      //don't need to run this at full speed.
+      break;
+    }
+    match_found();    
+}
+
+void check_for_fingerprint_sensor()
+{
+  if (finger.verifyPassword())
+  {
+
+    delay (1000);
+  }
+  else
+  {
+    delay (1000);
+    while (1);
+  }
+}
+
+
+int match_found()
+{
+  foundmatch();
+  Serial.print("f:"); 
+  Serial.print(finger.fingerID); Serial.println(" ");
+  opendoor();
+  return 1;
+}
+
+int getFingerprintIDez()
+{
+  uint8_t p = finger.getImage();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.image2Tz();
+  if (p != FINGERPRINT_OK)  return -1;
+
+  p = finger.fingerFastSearch();
+  if (p != FINGERPRINT_OK)  return -1;
+  ///////////
+  return 1;
+  /////////s
+}
+
+/*Beeping Code for error*/
+void beep()
+{
+  char key = keypad.getKey();
+  while(key == NO_KEY){
+    
+   analogWrite(9, 20);      // Almost any value can be used except 0 and 255
+                         // experiment to get the best tone
+   key = keypad.getKey();//update value  
+   }
+   if (key != NO_KEY ){
+      Serial.println("Incorrect key");
+      //Serial.println(key);
+      switch (key) {
+    case '#':
+    Serial.println("Correct key");
+      readkeypad();
+      break;
+    case '*':
+      piezosensor();
+      break;
+    default:
+      beep();
+      break;
+      }
+      
+      }
+}
+
+void piezosensor()
+{
+  int sensorReading = 0; 
+  int ledState = LOW;
+  sensorReading = analogRead(knockSensor);
+  if (sensorReading >= threshold){
+    // if the sensor reading is greater than the threshold:
+     // toggle the status of the ledPin:
+    ledState = !ledState;
+    // update the LED pin itself:
+    digitalWrite(LED, ledState);
+    Serial.println("SECURITY BREACH!!");
+    char key = keypad.getKey();
+    while(key == NO_KEY)
+    {
+       beep();
+    }
+    
+    }
+  else
+  {
+   valid_(); 
+  } 
+}
+
+void readkeypad(){
+  
+  Serial.println("Enter security code:");
+  char key = keypad.getKey();
+  Serial.print(key);
+  int l;
+  while(key== NO_KEY){
+     key = keypad.getKey();//update value 
+   } 
+   if (key != NO_KEY ){
+     if (int (key) == code[currentposition])
+    {
+        Serial.println("The system has been reset ");
+        digitalWrite(13, HIGH);       
+        //analogWrite(9,0);
+        alarmoff();        
+    }
+    else
+      {
+        Serial.println("invalid code");
+        beep();
+        //key = keypad.getKey();
+      }
+   }
+    
+}
+
+void opendoor()
+{
+  //Serial.println("door open");
+  myStepper.step(stepsPerRevolution);
+  delay(500);
+
+  // step one revolution in the other direction:
+  //Serial.println("door closing");
+  myStepper.step(-stepsPerRevolution);
+  delay(500);
+}
+
+void alarmoff()
+{
+  analogWrite(9,0);
+  CodeToRun();
+}
+
+
